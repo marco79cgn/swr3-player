@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ARD Radio Player</title>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -259,8 +260,8 @@
       cursor: pointer;
     }
 
-    .btn-airplay {
-      display: none; /* Hidden by default, shown only in Safari */
+    .btn-airplay, .btn-cast {
+      display: none; /* Hidden by default, shown only in Safari/Chrome */
       background: none;
       border: none;
       color: #888;
@@ -269,14 +270,29 @@
       transition: transform 0.15s, opacity 0.15s;
     }
 
-    .btn-airplay:hover {
+    .btn-airplay:hover, .btn-cast:hover {
       transform: scale(1.1);
     }
 
-    .btn-airplay svg {
+    .btn-airplay svg, .btn-cast svg {
       fill: #888;
       width: 20px;
       height: 20px;
+    }
+
+    /* Google Cast custom styling */
+    google-cast-launcher {
+      --disconnected-color: #888;
+      --connected-color: #4a6cf7;
+      display: none;
+      cursor: pointer;
+      width: 20px;
+      height: 20px;
+      transition: transform 0.15s;
+    }
+
+    google-cast-launcher:hover {
+      transform: scale(1.1);
     }
   </style>
 </head>
@@ -328,6 +344,7 @@
           <path d="M6 22h12l-6-6zM21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h4v-2H3V5h18v12h-4v2h4c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
         </svg>
       </button>
+      <google-cast-launcher id="castBtn" title="Google Cast"></google-cast-launcher>
     </div>
   </div>
 
@@ -420,6 +437,11 @@
 
       // Auto-play on switch
       audio.play().catch(() => {});
+
+      // Update Cast if connected
+      if (isChrome && window.cast && cast.framework.CastContext.getInstance().getCurrentSession()) {
+        loadMediaOnCast();
+      }
     }
 
     // ── HLS Player ──────────────────────────────────────────────
@@ -539,18 +561,72 @@
     });
     audio.volume = 0.8;
 
-    // ── AirPlay (Safari only) ───────────────────────────────────
+    // ── AirPlay (Safari only) / Google Cast (Chrome) ───────────
     const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    const isChrome = /chrome|chromium|edg/i.test(navigator.userAgent) && !isSafari;
     const airplayBtn = document.getElementById('airplayBtn');
+    const castBtn = document.getElementById('castBtn');
     
+    // Show AirPlay button in Safari
     if (isSafari && window.WebKitPlaybackTargetAvailabilityEvent) {
       airplayBtn.style.display = 'block';
+    }
+    
+    // Show Google Cast button in Chrome
+    if (isChrome && window.chrome) {
+      window['__onGCastApiAvailable'] = function(isAvailable) {
+        if (isAvailable) {
+          initializeCast();
+        }
+      };
     }
 
     function showAirPlay() {
       if (audio.webkitShowPlaybackTargetPicker) {
         audio.webkitShowPlaybackTargetPicker();
       }
+    }
+
+    function initializeCast() {
+      cast.framework.CastContext.getInstance().setOptions({
+        receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
+        autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+      });
+
+      castBtn.style.display = 'block';
+
+      // Listen for cast state changes
+      const context = cast.framework.CastContext.getInstance();
+      context.addEventListener(
+        cast.framework.CastContextEventType.CAST_STATE_CHANGED,
+        (event) => {
+          if (event.castState === cast.framework.CastState.CONNECTED) {
+            loadMediaOnCast();
+          }
+        }
+      );
+    }
+
+    function loadMediaOnCast() {
+      const castSession = cast.framework.CastContext.getInstance().getCurrentSession();
+      if (!castSession) return;
+
+      const mediaInfo = new chrome.cast.media.MediaInfo(currentStation.stream, 'audio/x-mpegurl');
+      mediaInfo.metadata = new chrome.cast.media.MusicTrackMediaMetadata();
+      mediaInfo.metadata.title = trackTitle.textContent || currentStation.name;
+      mediaInfo.metadata.artist = trackArtist.textContent || showName.textContent;
+      mediaInfo.metadata.albumName = currentStation.name;
+      
+      if (artworkEl.querySelector('img')) {
+        const imgSrc = artworkEl.querySelector('img').src;
+        mediaInfo.metadata.images = [new chrome.cast.Image(imgSrc)];
+      }
+
+      const request = new chrome.cast.media.LoadRequest(mediaInfo);
+      castSession.loadMedia(request).then(
+        () => console.log('Cast: Media loaded'),
+        (error) => console.error('Cast error:', error)
+      );
     }
 
     // ── Scrubber / DVR ──────────────────────────────────────────
@@ -904,6 +980,22 @@
                 artworkEl.innerHTML = `<img src="${currentStation.logo}" alt="${currentStation.name} Logo">`;
               } else {
                 artworkEl.innerHTML = '<div class="placeholder">📻</div>';
+              }
+
+              // Update Cast metadata if connected
+              if (isChrome && window.cast && cast.framework.CastContext.getInstance().getCurrentSession()) {
+                const castSession = cast.framework.CastContext.getInstance().getCurrentSession();
+                const media = castSession.getMediaSession();
+                if (media) {
+                  const metadata = new chrome.cast.media.MusicTrackMediaMetadata();
+                  metadata.title = clip.title || '—';
+                  metadata.artist = clip.artist || '—';
+                  metadata.albumName = currentStation.name;
+                  if (hasRealCover) {
+                    metadata.images = [new chrome.cast.Image(clip.image.url.replace('{width}', '400'))];
+                  }
+                  // Note: updating metadata during playback is limited by Cast SDK
+                }
               }
             }
           } else {
