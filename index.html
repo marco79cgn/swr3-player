@@ -572,24 +572,16 @@
     const isArc = /arc/i.test(ua);
     isChromiumBased = /chrome|chromium|edg/i.test(ua) || (!!window.chrome && !isArc);
     
-    console.log('Browser detection:', { ua: ua.substring(0, 100), isSafari, isChromiumBased, isArc, hasChrome: !!window.chrome });
-    
     // Show AirPlay button in Safari
     if (isSafari && window.WebKitPlaybackTargetAvailabilityEvent) {
       airplayBtn.style.display = 'block';
-      console.log('AirPlay button enabled');
     }
     
     // Show Google Cast button in Chromium-based browsers (but not Arc - it doesn't support Cast SDK properly)
     if (isChromiumBased && !isSafari && !isArc) {
-      console.log('Setting up Cast for Chromium browser');
-      
       // Set up Cast API callback before it loads
       window['__onGCastApiAvailable'] = function(isAvailable) {
-        console.log('Cast API callback fired, available:', isAvailable);
-        // Try to initialize even if isAvailable is false
-        // (Arc might report false but still work)
-        if (window.cast && window.cast.framework) {
+        if (isAvailable && window.cast && window.cast.framework) {
           initializeCast();
         }
       };
@@ -597,12 +589,7 @@
       // Fallback: check if Cast API is already loaded
       setTimeout(() => {
         if (window.cast && window.cast.framework) {
-          console.log('Cast API already loaded (fallback init)');
           initializeCast();
-        } else {
-          console.warn('Cast API not available after 3s - showing button anyway');
-          // Show button anyway - user can try clicking it
-          castBtn.style.display = 'block';
         }
       }, 3000);
     }
@@ -621,21 +608,19 @@
         });
 
         castBtn.style.display = 'block';
-        console.log('Cast button enabled');
 
         // Listen for cast state changes
         const context = cast.framework.CastContext.getInstance();
         context.addEventListener(
           cast.framework.CastContextEventType.CAST_STATE_CHANGED,
           (event) => {
-            console.log('Cast state changed:', event.castState);
             if (event.castState === cast.framework.CastState.CONNECTED) {
               loadMediaOnCast();
             }
           }
         );
       } catch (e) {
-        console.error('Failed to initialize Cast:', e);
+        // Silently fail
       }
     }
 
@@ -655,10 +640,9 @@
       }
 
       const request = new chrome.cast.media.LoadRequest(mediaInfo);
-      castSession.loadMedia(request).then(
-        () => console.log('Cast: Media loaded'),
-        (error) => console.error('Cast error:', error)
-      );
+      castSession.loadMedia(request).catch(() => {
+        // Silently fail
+      });
     }
 
     // ── Scrubber / DVR ──────────────────────────────────────────
