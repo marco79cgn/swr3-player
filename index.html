@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ARD Radio Player</title>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-  <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -579,19 +578,18 @@
     
     // Show Google Cast button in Chromium-based browsers (but not Arc - it doesn't support Cast SDK properly)
     if (isChromiumBased && !isSafari && !isArc) {
-      // Set up Cast API callback before it loads
+      // Dynamically load Cast SDK only for supported browsers
+      const castScript = document.createElement('script');
+      castScript.src = 'https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1';
+      
+      // Set up Cast API callback before loading the script
       window['__onGCastApiAvailable'] = function(isAvailable) {
         if (isAvailable && window.cast && window.cast.framework) {
           initializeCast();
         }
       };
       
-      // Fallback: check if Cast API is already loaded
-      setTimeout(() => {
-        if (window.cast && window.cast.framework) {
-          initializeCast();
-        }
-      }, 3000);
+      document.head.appendChild(castScript);
     }
 
     function showAirPlay() {
